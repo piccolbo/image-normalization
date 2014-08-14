@@ -254,7 +254,7 @@ Here again the changes are present all along the shoreline, but also the color o
 
 ## Conclusion
 
-Don't squint at satellite images! Let computers do the hard work and R to corral them.
+Don't squint at satellite images! Let computers do the hard work and use R to program them.
 
 ### Materials and Methods
 Images by [Planet Labs](planet.com) and [USGS](usgs.gov)/[NASA](nasa.gov). Helpful packages: `jpeg` (read jpegs), `grid` (raster plot), `abind` (array manipulations), `ggplot2` (statistical graphics), `knitr` (report generation) . Written in R Markdown with [Rstudio](rstudio.com).
