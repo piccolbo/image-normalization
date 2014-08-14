@@ -1,29 +1,16 @@
----
-output: 
-  html_fragment:
-    keep_md: true
----
 
 
 
-```{r echo = FALSE}
-library(knitr)
-opts_chunk$set(echo = TRUE, cache = TRUE)
-```
+
 
 Use statistics and R instead of squinting at satellite images!
 
 <!-- more -->
 You may have, like me, run into this [article](http://bits.blogs.nytimes.com/2014/08/13/start-up-provides-a-picture-of-our-shape-shifting-planet/). Amazing stuff. A little startup pushing satellite imaging to the next level. Full planet coverage at the resolution of a few feet every 24 hours, soon, and on a shoestring budget. The article is rich in images. Let's load them for later use (I an sure this is fair use, bit if folks at Planet labs are upset by this, I will oblige). I used a low tech right click to get them to my local drive. No screen scraping in this episode, sorry.
 
-```{r cache=FALSE, echo=FALSE}
-library(jpeg)
-library(grid)
-library(abind)
-library(ggplot2)
-options(warn = -1)
-```
-```{r}
+
+
+```r
 fnames = 
   list(
     ulanqab = "~/Downloads/planet-labs-1.jpg",
@@ -34,7 +21,8 @@ fnames =
 
 As usual we need some data laundry. Two images of the same area at different moments in time are pasted vertically into one larger image. Not a big deal.
 
-```{r}
+
+```r
 split.image  =
   function(image)
     list(
@@ -47,7 +35,8 @@ images = lapply(fnames, function(fn) split.image(readJPEG(fn)))
 
 Now we have the images in convenient arrays, we need to plot them. Here are a few handy functions
 
-```{r}
+
+```r
 myplot = function(...) UseMethod("myplot")
 
 myplot.matrix = 
@@ -59,21 +48,27 @@ myplot.matrix =
 myplot.array = 
   function(arr)
     myplot(arr[,,1], arr[,,2], arr[,,3])
-```    
+```
 
 What this says is that images are stored in  arrays with three dimensions, x, y and channel (red, green and blue). Using the library `grid`, we create an `rgb` object and plot it. The functions are organized as one generic with two methods, one for matrices (single channel) and one for arrays (images). Let's take a look.
 
 Past:
 
-```{r}
+
+```r
 with(images$ulanqab, myplot(before))
 ```
 
+![plot of chunk unnamed-chunk-6](./imnorm_files/figure-html/unnamed-chunk-6.png) 
+
 Present:
 
-```{r}
+
+```r
 with(images$ulanqab, myplot(after))
 ```
+
+![plot of chunk unnamed-chunk-7](./imnorm_files/figure-html/unnamed-chunk-7.png) 
 
 I don't know about you, but the only thing I can see right away is that one image is a lot warmer and a little brighter than the other. It could be that there was a dry season followed by a rainy season, or it could be that the equipment used for the two images is different and results in a different color temperature. In fact the older picture is by USGS/NASA and the newer one by Planet Labs, so no wonder there are differences in equipment. A measured difference that does not depend on a change in the phenomenon of interest is called artifact or confounding factor and there is often a need to remove it or discount it in data analysis. This operation is often called *normalization*. There is a risk that normalization could remove real differences, not unlike when we use flash photography at night, it ruins the atmosphere, doesn't it? But we should have calibrated our instruments early on; it's too late now to complain. These differences are suspect, so we want them out of our images.
 
@@ -82,7 +77,8 @@ I don't know about you, but the only thing I can see right away is that one imag
  
 So here is a new idea, at least after a quick literature search it appears to be new. If somebody knows it already, please let me know and I will add appropriate references. The goal is to define a non-linear correction of the intensities that can only reduce the difference between two images, and never add new ones. I will call this "conservative differential normalization". I wish I had it in my biotech days, as in biology differences are the only thing that counts. We just start with a scatter plot of the intensities in one image against the intensities in the other -- all the steps here are applied one channel at a time -- and a smoothing line for good measure. 
 
-```{r echo =TRUE, message=FALSE}
+
+```r
 ula = 
   data.frame(
     x = as.vector(images$ulanqab$before[,,2]), 
@@ -90,10 +86,13 @@ ula =
 ggplot(data = ula, aes(x = x, y = y)) + geom_jitter(size = .7) +  geom_smooth()
 ```
 
+![plot of chunk unnamed-chunk-8](./imnorm_files/figure-html/unnamed-chunk-8.png) 
+
 Now we use the smoother as a "translator" from intensities in one image to those in the other, which means we have an intensity dependent normalization function, that, due to the robustness of the smoother, doesn't respond to rare, outlying changes, which we want to preserve. In our soccer analogy, the smoother will be guided by the fact that most grass is grass in both images and map green to green, and refuse to  replace it with red or blue. If all the grass is darker in one image than the other, the smoother will be away from the diagonal in the range of intensities corresponding to grass, and make it look the same in both images. In the following implementation, one added touch is that the reference image for two images that need to be normalized is always the average image. I don't think that's technically necessary, but visually it is more appealing to see images converge to a "consensus" and it's also easier to generalize to many images, where the median may be preferred for its robustness.
 
 
-```{r}
+
+```r
 smunorm = 
   function(...) UseMethod("smunorm")
 
@@ -121,16 +120,23 @@ smunorm.array =
 
 In detail here we are using the `supsmu` function at defaults and are performing linear interpolation with `approxfun`.  Finally normalized intensities are truncated to the $[0,1]$ interval. I am not sure why they exceed it in the first place, but it happens only occasionally and by modest amounts, so I wouldn't worry about it. And these are the normalized images:
 
-```{r}
+
+```r
 with(images$ulanqab, myplot(smunorm(before, after)))
 ```
-```{r}
+
+![plot of chunk unnamed-chunk-10](./imnorm_files/figure-html/unnamed-chunk-10.png) 
+
+```r
 with(images$ulanqab, myplot(smunorm(after, before)))
 ```
 
+![plot of chunk unnamed-chunk-11](./imnorm_files/figure-html/unnamed-chunk-11.png) 
+
 Great! Now the pictures are more similar and we can start to focus on the details: I see that the irrigation status of some of those round patches has changed, and it looks like a grassy field is now a pond. But my eyesight is not what it used to be and I get tired of squinting at these pictures, and there are many of them. ["Can't someone else do it?"](https://en.wikipedia.org/wiki/Trash_of_the_Titans), for instance, our trusty computer? We could take the difference of images and try to make it into an image again, but what defines an exceptional difference, one worth looking into, could change from picture to picture. We need something more invariant from image pair to another, like a probabilistic model of differences between two normalized images. After eyeballing a few `qqnorm` plots for up to 10 minutes, I decided I was going to consider the differences between images as a mixture of a normal distribution and something else corresponding to small uninteresting differences and big interesting differences respectively, and rate them based on the probability of being generated by the normal component. The parameters of the normal are estimated robustly with `median` and `mad`. Should do it for a blog post, but don't bet the company on this method just yet.
 
-```{r}
+
+```r
 imdiff = function(...) UseMethod("imdiff")
 
 imdiff.matrix = 
@@ -153,9 +159,12 @@ imdiff.array =
 
 And here it is in action; darker means large difference and saturated means channel-specific difference.
 
-```{r}
+
+```r
 with(images$ulanqab, myplot(imdiff(smunorm(after, before), smunorm(before, after))))
 ```
+
+![plot of chunk unnamed-chunk-13](./imnorm_files/figure-html/unnamed-chunk-13.png) 
 
 Not only the changes in the farmland are more clear, with some plots going from dry to verdant and the other way around, but also the cluster of changes around the urban area in the top left corner is more visible. Also, try to locate the meadow that becomes a reservoir (hint: look for a purple patch).
 
@@ -163,60 +172,90 @@ There were a few more pictures in that article, why don't we take a look at what
 
 The crossing of the Han river. Past:
 
-```{r}
+
+```r
 with(images$han.river, myplot(before))
 ```
 
+![plot of chunk unnamed-chunk-14](./imnorm_files/figure-html/unnamed-chunk-14.png) 
+
 Present:
 
-```{r}
+
+```r
 with(images$han.river, myplot(after))
 ```
 
+![plot of chunk unnamed-chunk-15](./imnorm_files/figure-html/unnamed-chunk-15.png) 
+
 Normalized:
 
-```{r}
+
+```r
 with(images$han.river, myplot(smunorm(before, after)))
 ```
 
-```{r}
+![plot of chunk unnamed-chunk-16](./imnorm_files/figure-html/unnamed-chunk-16.png) 
+
+
+```r
 with(images$han.river, myplot(smunorm(after, before)))
 ```
 
+![plot of chunk unnamed-chunk-17](./imnorm_files/figure-html/unnamed-chunk-17.png) 
+
 Difference plot:
 
-```{r}
+
+```r
 with(images$han.river, myplot(imdiff(smunorm(after, before), smunorm(before, after))))
 ```
+
+![plot of chunk unnamed-chunk-18](./imnorm_files/figure-html/unnamed-chunk-18.png) 
 
 Interesting how the man made structures stand out, and the change in water clarity.
 
 The next example shows the effects of drought on a reservoir in Brasil. Past:
-```{r}
+
+```r
 with(images$tres.marias, myplot(before))
 ```
 
+![plot of chunk unnamed-chunk-19](./imnorm_files/figure-html/unnamed-chunk-19.png) 
+
 Present:
 
-```{r}
+
+```r
 with(images$tres.marias, myplot(after))
 ```
 
+![plot of chunk unnamed-chunk-20](./imnorm_files/figure-html/unnamed-chunk-20.png) 
+
 Normalized:
 
-```{r}
+
+```r
 with(images$tres.marias, myplot(smunorm(before, after)))
 ```
 
-```{r}
+![plot of chunk unnamed-chunk-21](./imnorm_files/figure-html/unnamed-chunk-21.png) 
+
+
+```r
 with(images$tres.marias, myplot(smunorm(after, before)))
 ```
 
+![plot of chunk unnamed-chunk-22](./imnorm_files/figure-html/unnamed-chunk-22.png) 
+
 Difference plot:
 
-```{r}
+
+```r
 with(images$tres.marias, myplot(imdiff(smunorm(after, before), smunorm(before, after))))
 ```
+
+![plot of chunk unnamed-chunk-23](./imnorm_files/figure-html/unnamed-chunk-23.png) 
 
 The main changes here are around the shoreline, the color of the water at the southern end of the reservoir and some vegetation changes on the ridges surrounding the reservoir, in turquoise.
 
@@ -224,31 +263,46 @@ Effects of drought on a reservoir in California:
 
 Past:
 
-```{r}
+
+```r
 with(images$lake.county, myplot(before))
 ```
 
+![plot of chunk unnamed-chunk-24](./imnorm_files/figure-html/unnamed-chunk-24.png) 
+
 Present:
 
-```{r}
+
+```r
 with(images$lake.county, myplot(after))
 ```
 
+![plot of chunk unnamed-chunk-25](./imnorm_files/figure-html/unnamed-chunk-25.png) 
+
 Normalized:
 
-```{r}
+
+```r
 with(images$lake.county, myplot(smunorm(before, after)))
 ```
 
-```{r}
+![plot of chunk unnamed-chunk-26](./imnorm_files/figure-html/unnamed-chunk-26.png) 
+
+
+```r
 with(images$lake.county, myplot(smunorm(after, before)))
 ```
 
+![plot of chunk unnamed-chunk-27](./imnorm_files/figure-html/unnamed-chunk-27.png) 
+
 Difference plot:
 
-```{r}
+
+```r
 with(images$lake.county, myplot(imdiff(smunorm(after, before), smunorm(before, after))))
 ```
+
+![plot of chunk unnamed-chunk-28](./imnorm_files/figure-html/unnamed-chunk-28.png) 
 
 Here again the changes are present all along the shoreline, but also the color of most of the water surface has turned darker.
 
